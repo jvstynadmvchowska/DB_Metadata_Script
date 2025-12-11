@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "DbMetaTool": {
+      "commandName": "Project",
+      "commandLineArgs": "update-db --connection-string \"User=SYSDBA;Password=admin;Database=C:\\Users\\justy\\OneDrive\\Pulpit\\rekrutacja sente\\testowanie\\NewDbFromScripts.fdb;DataSource=localhost;Dialect=3;Charset=UTF8;\" --scripts-dir \"C:\\Users\\justy\\OneDrive\\Pulpit\\rekrutacja sente\\testowanie\\output\""
+    }
+  }
+}
