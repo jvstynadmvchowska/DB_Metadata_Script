@@ -94,7 +94,7 @@ namespace DbMetaTool
             {
                 string dbFileName = "NewDbFromScripts.fdb";
                 string dbPath = Path.Combine(databaseDirectory, dbFileName);
-                string connectionString = $"User=SYSDBA;Password=admin;Database={dbPath};DataSource=localhost;Dialect=3;Charset=UTF8;";
+                string connectionString = $"User=SYSDBA;Password=masterkey;Database={dbPath};DataSource=localhost;Dialect=3;Charset=UTF8;";
 
                 if (File.Exists(dbPath))
                 {

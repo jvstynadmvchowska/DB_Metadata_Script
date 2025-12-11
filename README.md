@@ -1,62 +1,39 @@
-\# Firebird Metadata Sync Tool
+**Firebird Metadata Sync Tool**
 
+A .NET 8.0 console application designed to manage Firebird 5.0 database metadata.
+This tool enables SQL script generation from an existing database, building a new database from scripts, and updating the structure of an existing database.
 
+**Prerequisites**
+&nbsp;	1..NET 8.0 SDK
+&nbsp;	2.Firebird 5.0 Server (running on localhost, port 3050)
 
-Aplikacja konsolowa .NET 8.0 służąca do zarządzania metadanymi bazy Firebird 5.0. 
+**Important Configuration Notes**
+Please ensure the following before running the tool:
+&nbsp;	1.USER: Use the default SYSDBA user with the masterkey password. If your credentials differ, you will need to modify the corresponding parts of the code or connection strings.
+&nbsp;	2.PATHS: Ensure the file paths provided as arguments are correct and match your local environment.
+&nbsp;	3.SERVER: The Firebird 5.0 server must be running on localhost port 3050. If your setup is different, you will need to update the connection logic in the code.
 
-Narzędzie umożliwia generowanie skryptów SQL z bazy, budowanie nowej bazy ze skryptów oraz aktualizację istniejącej struktury.
+**Features**
+&nbsp;	1.Database Building (build-db)
+Creates a new database based on the provided SQL files.
+&nbsp;	2.Script Export (export-scripts)
+Generates .sql files for domains, tables, and stored procedures from an existing database.
+&nbsp;	3.Database Update (update-db)
+Safely updates an existing database (skips existing tables to prevent data loss, updates/alters stored procedures).
 
+**Known Limitations**
+Due to time constraints, a configuration file (e.g., appsettings.json) was not implemented. Consequently, administrative credentials and settings are not currently centralized for better security and maintainability. Feel free to refactor this part or implement a configuration provider.
 
-
-
-
-Wymagania
-
-\* .NET 8.0 SDK
-
-\* Firebird 5.0 Server (działający na localhost, port 3050)
-
-
-
-
-
-Funkcjonalności
-
-1\. Budowanie bazy (`build-db`) - tworzy nową bazę danych z plików SQL.
-
-
-
-2\. Eksport skryptów (`export-scripts`) - generuje pliki .sql dla domen, tabel i procedur istniejących w bazie danych.
-
-
-
-3\. Aktualizacja bazy (`update-db`) - bezpiecznie aktualizuje istniejącą bazę (pomija istniejące tabele, aktualizuje procedury).
-
-
-
-
-
-
-
-Przykłady użycia
-
-&nbsp;	1. Eksport skryptów
-
-DbMetaTool export-scripts --connection-string "User=SYSDBA;Password=masterkey;Database=C:\\Dane\\baza.fdb;DataSource=localhost;Dialect=3;Charset=UTF8;" --output-dir "C:\\Projekty\\Output"
-
-
-
-&nbsp;	2. Budowanie nowej bazy
-
-DbMetaTool build-db --db-dir "C:\\Dane" --scripts-dir "C:\\Projekty\\Output"
-
-
-
-&nbsp;	3. Aktualizacja bazy
-
-DbMetaTool update-db --connection-string "User=SYSDBA;Password=masterkey;Database=C:\\Dane\\baza.fdb;DataSource=localhost;Dialect=3;Charset=UTF8;" --scripts-dir "C:\\Projekty\\Output"
-
-
-
-
-
+**Usage Examples**
+&nbsp;	1.Script Export
+```powershell
+DbMetaTool export-scripts --connection-string "User=SYSDBA;Password=masterkey;Database=C:\Data\db.fdb;DataSource=localhost;Dialect=3;Charset=UTF8;" --output-dir "C:\Projects\Output"
+```
+&nbsp;	2.Building a New Database
+```powershell
+DbMetaTool build-db --db-dir "C:\Data" --scripts-dir "C:\Projects\Output"
+```
+&nbsp;	3.Database Update
+```powershell
+DbMetaTool update-db --connection-string "User=SYSDBA;Password=masterkey;Database=C:\Data\db.fdb;DataSource=localhost;Dialect=3;Charset=UTF8;" --scripts-dir "C:\Projects\Output"
+```
