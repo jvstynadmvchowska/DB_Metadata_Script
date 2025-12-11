@@ -90,68 +90,79 @@ namespace DbMetaTool
             // 2) Wczytaj i wykonaj kolejno skrypty z katalogu scriptsDirectory
             //    (tylko domeny, tabele, procedury).
             // 3) Obsłuż błędy i wyświetl raport.
-
-            string dbFileName = "NewDbFromScripts.fdb";
-            string dbPath = Path.Combine(databaseDirectory, dbFileName);
-            string connectionString = $"User=SYSDBA;Password=admin;Database={dbPath};DataSource=localhost;Dialect=3;Charset=UTF8;";
-
-            if (File.Exists(dbPath))
+            try
             {
-                File.Delete(dbPath);
+                string dbFileName = "NewDbFromScripts.fdb";
+                string dbPath = Path.Combine(databaseDirectory, dbFileName);
+                string connectionString = $"User=SYSDBA;Password=admin;Database={dbPath};DataSource=localhost;Dialect=3;Charset=UTF8;";
+
+                if (File.Exists(dbPath))
+                {
+                    File.Delete(dbPath);
+                }
+
+                FbConnection.CreateDatabase(connectionString);
+
+                using (var connection = new FbConnection(connectionString))
+                {
+                    connection.Open();
+
+                    ExecuteScriptsInDirectory(connection, Path.Combine(scriptsDirectory, "domains"));
+                    ExecuteScriptsInDirectory(connection, Path.Combine(scriptsDirectory, "tables"));
+                    ExecuteScriptsInDirectory(connection, Path.Combine(scriptsDirectory, "procedures"));
+                }
             }
-
-            FbConnection.CreateDatabase(connectionString);
-
-            using (var connection = new FbConnection(connectionString))
-            {
-                connection.Open();
-
-                ExecuteScriptsInDirectory(connection, Path.Combine(scriptsDirectory, "domains"));
-                ExecuteScriptsInDirectory(connection, Path.Combine(scriptsDirectory, "tables"));
-                ExecuteScriptsInDirectory(connection, Path.Combine(scriptsDirectory, "procedures"));
+            catch(Exception ex) 
+            { 
+                Console.WriteLine(ex.Message); 
+                return; 
             }
-
-            //throw new NotImplementedException();
+            
         }
 
         private static void ExecuteScriptsInDirectory(FbConnection connection, string directoryPath)
         {
-            if (!Directory.Exists(directoryPath)) return;
-
-            var files = Directory.GetFiles(directoryPath, "*.sql");
-            foreach (var filePath in files)
+            try
             {
-                string scriptText = File.ReadAllText(filePath);
-                string fileName = Path.GetFileName(filePath);
+                if (!Directory.Exists(directoryPath)) return;
 
-                try
+                var files = Directory.GetFiles(directoryPath, "*.sql");
+                foreach (var filePath in files)
                 {
-                    using (var command = new FbCommand(scriptText, connection))
-                    {
-                        command.ExecuteNonQuery();
-                    }
-                    Console.WriteLine($"[SUKCES] Wykonano skrypt: {fileName}");
-                }
-                catch (FbException ex)
-                {
-                    bool objectExistsError = ex.Message.Contains("violation of PRIMARY or UNIQUE KEY constraint") ||
-                                             ex.Message.Contains("unsuccessful metadata update") ||
-                                             ex.Message.Contains("already exists");
+                    string scriptText = File.ReadAllText(filePath);
+                    string fileName = Path.GetFileName(filePath);
 
-                    if (objectExistsError)
+                    try
                     {
-                        Console.WriteLine($"[INFO] Pominięto (obiekt istnieje): {fileName}");
+                        using (var command = new FbCommand(scriptText, connection))
+                        {
+                            command.ExecuteNonQuery();
+                        }
+                        Console.WriteLine($"[SUKCES] Wykonano skrypt: {fileName}");
                     }
-                    else
+                    catch (FbException ex)
                     {
-                        Console.WriteLine($"[BŁĄD SQL] Nie udało się wykonać {fileName}: {ex.Message}");
+                        bool objectExistsError = ex.Message.Contains("violation of PRIMARY or UNIQUE KEY constraint") ||
+                                                 ex.Message.Contains("unsuccessful metadata update") ||
+                                                 ex.Message.Contains("already exists");
+
+                        if (objectExistsError)
+                        {
+                            Console.WriteLine($"[INFO] Pominięto (obiekt istnieje): {fileName}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"[BŁĄD SQL] Nie udało się wykonać {fileName}: {ex.Message}");
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[BŁĄD PLIKU] {fileName}: {ex.Message}");
                 }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                return;
+            }
+            
         }
 
         /// <summary>
@@ -159,17 +170,19 @@ namespace DbMetaTool
         /// </summary>
         public static void ExportScripts(string connectionString, string outputDirectory)
         {
-            if (Directory.Exists(outputDirectory)) Directory.Delete(outputDirectory, true);
-            Directory.CreateDirectory(outputDirectory);
-            Directory.CreateDirectory(Path.Combine(outputDirectory, "domains"));
-            Directory.CreateDirectory(Path.Combine(outputDirectory, "tables"));
-            Directory.CreateDirectory(Path.Combine(outputDirectory, "procedures"));
-
-            using (var connection = new FbConnection(connectionString))
+            try
             {
-                connection.Open();
+                if (Directory.Exists(outputDirectory)) Directory.Delete(outputDirectory, true);
+                Directory.CreateDirectory(outputDirectory);
+                Directory.CreateDirectory(Path.Combine(outputDirectory, "domains"));
+                Directory.CreateDirectory(Path.Combine(outputDirectory, "tables"));
+                Directory.CreateDirectory(Path.Combine(outputDirectory, "procedures"));
 
-                string domainSql = @"
+                using (var connection = new FbConnection(connectionString))
+                {
+                    connection.Open();
+
+                    string domainSql = @"
             SELECT 
                 TRIM(f.RDB$FIELD_NAME),
                 CASE f.RDB$FIELD_TYPE
@@ -185,44 +198,44 @@ namespace DbMetaTool
             FROM RDB$FIELDS f
             WHERE f.RDB$SYSTEM_FLAG = 0 AND f.RDB$FIELD_NAME NOT LIKE 'RDB$%'";
 
-                using (var cmd = new FbCommand(domainSql, connection))
-                using (var reader = cmd.ExecuteReader())
-                {
-                    while (reader.Read())
+                    using (var cmd = new FbCommand(domainSql, connection))
+                    using (var reader = cmd.ExecuteReader())
                     {
-                        string name = reader.GetString(0);
-                        string type = reader.GetString(1).Trim();
-                        int length = reader.IsDBNull(2) ? 0 : reader.GetInt16(2);
-                        int scale = reader.GetInt16(3);
-                        int precision = reader.IsDBNull(4) ? 0 : reader.GetInt16(4);
-                        string nullable = reader.GetString(5);
-
-                        string finalType = type;
-                        if ((type == "SMALLINT" || type == "INTEGER" || type == "BIGINT") && scale < 0)
+                        while (reader.Read())
                         {
-                            if (precision == 0) precision = (type == "BIGINT") ? 18 : (type == "INTEGER" ? 9 : 4);
-                            finalType = $"DECIMAL({precision}, {-scale})";
-                        }
-                        else if (type == "VARCHAR" || type == "CHAR")
-                        {
-                            finalType = $"{type}({length})";
-                        }
+                            string name = reader.GetString(0);
+                            string type = reader.GetString(1).Trim();
+                            int length = reader.IsDBNull(2) ? 0 : reader.GetInt16(2);
+                            int scale = reader.GetInt16(3);
+                            int precision = reader.IsDBNull(4) ? 0 : reader.GetInt16(4);
+                            string nullable = reader.GetString(5);
 
-                        File.WriteAllText(Path.Combine(outputDirectory, "domains", $"{name}.sql"),
-                            $"CREATE DOMAIN {name} AS {finalType}{nullable};");
+                            string finalType = type;
+                            if ((type == "SMALLINT" || type == "INTEGER" || type == "BIGINT") && scale < 0)
+                            {
+                                if (precision == 0) precision = (type == "BIGINT") ? 18 : (type == "INTEGER" ? 9 : 4);
+                                finalType = $"DECIMAL({precision}, {-scale})";
+                            }
+                            else if (type == "VARCHAR" || type == "CHAR")
+                            {
+                                finalType = $"{type}({length})";
+                            }
+
+                            File.WriteAllText(Path.Combine(outputDirectory, "domains", $"{name}.sql"),
+                                $"CREATE DOMAIN {name} AS {finalType}{nullable};");
+                        }
                     }
-                }
 
-                var tables = new List<string>();
-                using (var cmd = new FbCommand("SELECT TRIM(RDB$RELATION_NAME) FROM RDB$RELATIONS WHERE RDB$SYSTEM_FLAG = 0 AND RDB$VIEW_BLR IS NULL", connection))
-                using (var r = cmd.ExecuteReader()) while (r.Read()) tables.Add(r.GetString(0));
+                    var tables = new List<string>();
+                    using (var cmd = new FbCommand("SELECT TRIM(RDB$RELATION_NAME) FROM RDB$RELATIONS WHERE RDB$SYSTEM_FLAG = 0 AND RDB$VIEW_BLR IS NULL", connection))
+                    using (var r = cmd.ExecuteReader()) while (r.Read()) tables.Add(r.GetString(0));
 
-                foreach (var t in tables)
-                {
-                    var sb = new StringBuilder();
-                    sb.AppendLine($"CREATE TABLE {t} (");
+                    foreach (var t in tables)
+                    {
+                        var sb = new StringBuilder();
+                        sb.AppendLine($"CREATE TABLE {t} (");
 
-                    string colSql = $@"
+                        string colSql = $@"
                 SELECT TRIM(rf.RDB$FIELD_NAME), TRIM(rf.RDB$FIELD_SOURCE), f.RDB$SYSTEM_FLAG,
                 CASE f.RDB$FIELD_TYPE
                     WHEN 7 THEN 'SMALLINT' WHEN 8 THEN 'INTEGER' WHEN 10 THEN 'FLOAT'
@@ -236,66 +249,66 @@ namespace DbMetaTool
                 WHERE rf.RDB$RELATION_NAME = '{t}' 
                 ORDER BY rf.RDB$FIELD_POSITION";
 
-                    using (var cmd = new FbCommand(colSql, connection))
+                        using (var cmd = new FbCommand(colSql, connection))
+                        using (var r = cmd.ExecuteReader())
+                        {
+                            while (r.Read())
+                            {
+                                string colName = r.GetString(0);
+                                string domainName = r.GetString(1);
+                                bool isSystem = r.GetInt32(2) == 1;
+                                string baseType = r.GetString(3).Trim();
+                                int length = r.IsDBNull(4) ? 0 : r.GetInt16(4);
+                                int scale = r.GetInt16(5);
+                                int precision = r.IsDBNull(6) ? 0 : r.GetInt16(6);
+
+                                string typeStr;
+                                if (!domainName.StartsWith("RDB$") && !isSystem)
+                                {
+                                    typeStr = domainName;
+                                }
+                                else
+                                {
+                                    if ((baseType == "SMALLINT" || baseType == "INTEGER" || baseType == "BIGINT") && scale < 0)
+                                    {
+                                        if (precision == 0) precision = (baseType == "BIGINT") ? 18 : 9;
+                                        typeStr = $"DECIMAL({precision}, {-scale})";
+                                    }
+                                    else if (baseType == "VARCHAR" || baseType == "CHAR")
+                                    {
+                                        typeStr = $"{baseType}({length})";
+                                    }
+                                    else typeStr = baseType;
+                                }
+                                sb.AppendLine($"    {colName} {typeStr},");
+                            }
+                        }
+                        string finalSql = sb.ToString().TrimEnd(',', '\r', '\n') + "\n);";
+                        File.WriteAllText(Path.Combine(outputDirectory, "tables", $"{t}.sql"), finalSql);
+                    }
+
+                    var procedures = new List<(string Name, string Source)>();
+                    string procListSql = "SELECT TRIM(RDB$PROCEDURE_NAME), RDB$PROCEDURE_SOURCE FROM RDB$PROCEDURES WHERE RDB$SYSTEM_FLAG = 0";
+
+                    using (var cmd = new FbCommand(procListSql, connection))
                     using (var r = cmd.ExecuteReader())
                     {
                         while (r.Read())
                         {
-                            string colName = r.GetString(0);
-                            string domainName = r.GetString(1);
-                            bool isSystem = r.GetInt32(2) == 1;
-                            string baseType = r.GetString(3).Trim();
-                            int length = r.IsDBNull(4) ? 0 : r.GetInt16(4);
-                            int scale = r.GetInt16(5);
-                            int precision = r.IsDBNull(6) ? 0 : r.GetInt16(6);
-
-                            string typeStr;
-                            if (!domainName.StartsWith("RDB$") && !isSystem)
-                            {
-                                typeStr = domainName;
-                            }
-                            else
-                            {
-                                if ((baseType == "SMALLINT" || baseType == "INTEGER" || baseType == "BIGINT") && scale < 0)
-                                {
-                                    if (precision == 0) precision = (baseType == "BIGINT") ? 18 : 9;
-                                    typeStr = $"DECIMAL({precision}, {-scale})";
-                                }
-                                else if (baseType == "VARCHAR" || baseType == "CHAR")
-                                {
-                                    typeStr = $"{baseType}({length})";
-                                }
-                                else typeStr = baseType;
-                            }
-                            sb.AppendLine($"    {colName} {typeStr},");
+                            string src = r.IsDBNull(1) ? "" : r.GetString(1);
+                            procedures.Add((r.GetString(0), src));
                         }
                     }
-                    string finalSql = sb.ToString().TrimEnd(',', '\r', '\n') + "\n);";
-                    File.WriteAllText(Path.Combine(outputDirectory, "tables", $"{t}.sql"), finalSql);
-                }
 
-                var procedures = new List<(string Name, string Source)>();
-                string procListSql = "SELECT TRIM(RDB$PROCEDURE_NAME), RDB$PROCEDURE_SOURCE FROM RDB$PROCEDURES WHERE RDB$SYSTEM_FLAG = 0";
-
-                using (var cmd = new FbCommand(procListSql, connection))
-                using (var r = cmd.ExecuteReader())
-                {
-                    while (r.Read())
+                    foreach (var proc in procedures)
                     {
-                        string src = r.IsDBNull(1) ? "" : r.GetString(1);
-                        procedures.Add((r.GetString(0), src));
-                    }
-                }
+                        string procName = proc.Name;
+                        string procSource = proc.Source;
 
-                foreach (var proc in procedures)
-                {
-                    string procName = proc.Name;
-                    string procSource = proc.Source;
+                        List<string> inputs = new List<string>();
+                        List<string> outputs = new List<string>();
 
-                    List<string> inputs = new List<string>();
-                    List<string> outputs = new List<string>();
-
-                    string paramSql = $@"
+                        string paramSql = $@"
                 SELECT 
                     TRIM(pp.RDB$PARAMETER_NAME), 
                     pp.RDB$PARAMETER_TYPE, -- 0 = IN, 1 = OUT
@@ -315,68 +328,75 @@ namespace DbMetaTool
                 WHERE pp.RDB$PROCEDURE_NAME = '{procName}'
                 ORDER BY pp.RDB$PARAMETER_TYPE, pp.RDB$PARAMETER_NUMBER";
 
-                    using (var cmd = new FbCommand(paramSql, connection))
-                    using (var r = cmd.ExecuteReader())
-                    {
-                        while (r.Read())
+                        using (var cmd = new FbCommand(paramSql, connection))
+                        using (var r = cmd.ExecuteReader())
                         {
-                            string pName = r.GetString(0);
-                            int pType = r.GetInt16(1);
-                            string domainName = r.GetString(2);
-                            bool isSystem = r.GetInt32(3) == 1;
-                            string baseType = r.GetString(4).Trim();
-                            int length = r.IsDBNull(5) ? 0 : r.GetInt16(5);
-                            int scale = r.GetInt16(6);
-                            int precision = r.IsDBNull(7) ? 0 : r.GetInt16(7);
-
-                            string typeStr;
-                            if (!domainName.StartsWith("RDB$") && !isSystem)
+                            while (r.Read())
                             {
-                                typeStr = domainName;
-                            }
-                            else
-                            {
-                                if ((baseType == "SMALLINT" || baseType == "INTEGER" || baseType == "BIGINT") && scale < 0)
-                                {
-                                    if (precision == 0) precision = (baseType == "BIGINT") ? 18 : 9;
-                                    typeStr = $"DECIMAL({precision}, {-scale})";
-                                }
-                                else if (baseType == "VARCHAR" || baseType == "CHAR")
-                                {
-                                    typeStr = $"{baseType}({length})";
-                                }
-                                else typeStr = baseType;
-                            }
+                                string pName = r.GetString(0);
+                                int pType = r.GetInt16(1);
+                                string domainName = r.GetString(2);
+                                bool isSystem = r.GetInt32(3) == 1;
+                                string baseType = r.GetString(4).Trim();
+                                int length = r.IsDBNull(5) ? 0 : r.GetInt16(5);
+                                int scale = r.GetInt16(6);
+                                int precision = r.IsDBNull(7) ? 0 : r.GetInt16(7);
 
-                            string paramDef = $"{pName} {typeStr}";
-                            if (pType == 0) inputs.Add(paramDef);
-                            else outputs.Add(paramDef);
+                                string typeStr;
+                                if (!domainName.StartsWith("RDB$") && !isSystem)
+                                {
+                                    typeStr = domainName;
+                                }
+                                else
+                                {
+                                    if ((baseType == "SMALLINT" || baseType == "INTEGER" || baseType == "BIGINT") && scale < 0)
+                                    {
+                                        if (precision == 0) precision = (baseType == "BIGINT") ? 18 : 9;
+                                        typeStr = $"DECIMAL({precision}, {-scale})";
+                                    }
+                                    else if (baseType == "VARCHAR" || baseType == "CHAR")
+                                    {
+                                        typeStr = $"{baseType}({length})";
+                                    }
+                                    else typeStr = baseType;
+                                }
+
+                                string paramDef = $"{pName} {typeStr}";
+                                if (pType == 0) inputs.Add(paramDef);
+                                else outputs.Add(paramDef);
+                            }
                         }
+
+                        var sb = new StringBuilder();
+                        sb.Append($"CREATE OR ALTER PROCEDURE {procName}");
+
+                        if (inputs.Count > 0)
+                        {
+                            sb.AppendLine(" (");
+                            sb.AppendLine("    " + string.Join(",\n    ", inputs));
+                            sb.Append(")");
+                        }
+
+                        if (outputs.Count > 0)
+                        {
+                            sb.AppendLine("\nRETURNS (");
+                            sb.AppendLine("    " + string.Join(",\n    ", outputs));
+                            sb.Append(")");
+                        }
+
+                        sb.AppendLine("\nAS");
+                        sb.AppendLine(procSource);
+
+                        File.WriteAllText(Path.Combine(outputDirectory, "procedures", $"{procName}.sql"), sb.ToString());
                     }
-
-                    var sb = new StringBuilder();
-                    sb.Append($"CREATE OR ALTER PROCEDURE {procName}");
-
-                    if (inputs.Count > 0)
-                    {
-                        sb.AppendLine(" (");
-                        sb.AppendLine("    " + string.Join(",\n    ", inputs));
-                        sb.Append(")");
-                    }
-
-                    if (outputs.Count > 0)
-                    {
-                        sb.AppendLine("\nRETURNS (");
-                        sb.AppendLine("    " + string.Join(",\n    ", outputs));
-                        sb.Append(")");
-                    }
-
-                    sb.AppendLine("\nAS");
-                    sb.AppendLine(procSource);
-
-                    File.WriteAllText(Path.Combine(outputDirectory, "procedures", $"{procName}.sql"), sb.ToString());
                 }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                return;
+            }
+            
         }
 
         /// <summary>
@@ -388,17 +408,23 @@ namespace DbMetaTool
             // 1) Połącz się z bazą danych przy użyciu connectionString.
             // 2) Wykonaj skrypty z katalogu scriptsDirectory (tylko obsługiwane elementy).
             // 3) Zadbaj o poprawną kolejność i bezpieczeństwo zmian.
-
-            using (var connection = new FbConnection(connectionString))
+            try
             {
-                connection.Open();
+                using (var connection = new FbConnection(connectionString))
+                {
+                    connection.Open();
 
-                ExecuteScriptsInDirectory(connection, Path.Combine(scriptsDirectory, "domains"));
-                ExecuteScriptsInDirectory(connection, Path.Combine(scriptsDirectory, "tables"));
-                ExecuteScriptsInDirectory(connection, Path.Combine(scriptsDirectory, "procedures"));
+                    ExecuteScriptsInDirectory(connection, Path.Combine(scriptsDirectory, "domains"));
+                    ExecuteScriptsInDirectory(connection, Path.Combine(scriptsDirectory, "tables"));
+                    ExecuteScriptsInDirectory(connection, Path.Combine(scriptsDirectory, "procedures"));
+                }
             }
-
-            //throw new NotImplementedException();
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                return;
+            }
+            
         }
     }
 }
